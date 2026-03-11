@@ -1,20 +1,15 @@
 import { extension_settings, getContext } from '../../../../extensions.js';
 
-/**
- * Fish Audio TTS Extension
- * Integrates natively with SillyTavern TTS API.
- */
 const extensionName = 'fish-audio';
 const extensionFolderPath = `scripts/extensions/tts/${extensionName}`;
 const API_BASE = 'https://api.fish.audio';
 
-// Ensure settings exist and merge with defaults
 const defaultSettings = {
     apiKey: '',
     model: 's2-pro',
     format: 'mp3',
     latency: 'normal',
-    voices: [], // List of { id, name, type: 'remote'|'instant', reference_id, audio, text }
+    voices: [], // { id, name, type: 'remote'|'instant', reference_id, audio, text }
     selectedVoiceId: '',
     manualReferenceId: ''
 };
@@ -22,17 +17,11 @@ const defaultSettings = {
 if (!extension_settings[extensionName]) {
     extension_settings[extensionName] = { ...defaultSettings };
 }
-
-// Ensure voices array exists
 if (!extension_settings[extensionName].voices) {
     extension_settings[extensionName].voices = [];
 }
-
 const settings = extension_settings[extensionName];
 
-/**
- * Helper to display toastr messages if available in SillyTavern global scope
- */
 function showAlerter(message, type = 'info') {
     if (typeof toastr !== 'undefined') {
         if (type === 'error') toastr.error(message, 'Fish Audio TTS');
@@ -43,36 +32,34 @@ function showAlerter(message, type = 'info') {
     }
 }
 
-/**
- * Generate a unique ID
- */
 function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-/**
- * Convert file to base64 string
- * @param {File} file 
- * @returns {Promise<string>}
- */
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
-        reader.onload = () => {
-            const result = reader.result;
-            const base64 = result.split(',')[1];
-            resolve(base64);
-        };
+        reader.onload = () => resolve(reader.result.split(',')[1]);
         reader.onerror = error => reject(error);
     });
 }
 
-/**
- * Perform TTS generation
- * @param {string} text 
- * @returns {Promise<string>} Blob URL of the generated audio
- */
+function getVoiceInfo() {
+    let selectedVoice = settings.selectedVoiceId ? settings.voices.find(v => v.id === settings.selectedVoiceId) : null;
+    let payload = {};
+    if (settings.manualReferenceId && settings.manualReferenceId.trim() !== '') {
+        payload.reference_id = settings.manualReferenceId.trim();
+    } else if (selectedVoice) {
+        if (selectedVoice.type === 'remote' && selectedVoice.reference_id) {
+            payload.reference_id = selectedVoice.reference_id;
+        } else if (selectedVoice.type === 'instant' && selectedVoice.audio && selectedVoice.text) {
+            payload.references = [{ audio: selectedVoice.audio, text: selectedVoice.text }];
+        }
+    }
+    return payload;
+}
+
 async function generateAudio(text) {
     if (!settings.apiKey) {
         showAlerter('API Key is missing!', 'error');
@@ -83,33 +70,9 @@ async function generateAudio(text) {
         text: text,
         model: settings.model || 's2-pro',
         format: settings.format || 'mp3',
-        latency: settings.latency || 'normal'
+        latency: settings.latency || 'normal',
+        ...getVoiceInfo()
     };
-
-    // Voice Selection Logic
-    let selectedVoice = null;
-    if (settings.selectedVoiceId) {
-        selectedVoice = settings.voices.find(v => v.id === settings.selectedVoiceId);
-    }
-
-    // Determine reference_id vs references array
-    if (settings.manualReferenceId && settings.manualReferenceId.trim() !== '') {
-        // Highest priority: manual override
-        payload.reference_id = settings.manualReferenceId.trim();
-    } else if (selectedVoice) {
-        if (selectedVoice.type === 'remote' && selectedVoice.reference_id) {
-            payload.reference_id = selectedVoice.reference_id;
-        } else if (selectedVoice.type === 'instant' && selectedVoice.audio && selectedVoice.text) {
-            payload.references = [
-                {
-                    audio: selectedVoice.audio,
-                    text: selectedVoice.text
-                }
-            ];
-        }
-    }
-
-    console.debug('[Fish Audio TTS] Payload:', payload);
 
     let retries = 3;
     let lastError = null;
@@ -118,64 +81,38 @@ async function generateAudio(text) {
         try {
             const response = await fetch(`${API_BASE}/v1/tts`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${settings.apiKey}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Authorization': `Bearer ${settings.apiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
-                let errorDetails = '';
-                try {
-                    const errJson = await response.json();
-                    errorDetails = JSON.stringify(errJson);
-                } catch {
-                    errorDetails = await response.text();
-                }
-                throw new Error(`API Error ${response.status}: ${errorDetails}`);
+                const errJson = await response.text();
+                throw new Error(`API Error ${response.status}: ${errJson}`);
             }
 
-            // Return blob url
             const blob = await response.blob();
             return URL.createObjectURL(blob);
-            
         } catch (error) {
             lastError = error;
-            console.warn(`[Fish Audio TTS] Generate failed. Retries left: ${retries - 1}`, error);
+            console.warn(`[Fish Audio] Generate failed. Retries left: ${retries - 1}`, error);
             retries--;
-            if (retries > 0) {
-                // Wait before retry
-                await new Promise(r => setTimeout(r, 1000));
-            }
+            if (retries > 0) await new Promise(r => setTimeout(r, 1000));
         }
     }
-
-    showAlerter('Failed to generate audio directly.', 'error');
+    showAlerter('Failed to generate audio.', 'error');
     throw lastError;
 }
 
-/**
- * Creates a remote persistent model via Fish Audio API
- * @param {string} name 
- * @param {File} audioFile 
- * @param {string} transcript 
- * @returns {Promise<string>} reference_id
- */
 async function createRemoteModel(name, audioFile, transcript) {
     if (!settings.apiKey) throw new Error('API Key missing');
-
     const formData = new FormData();
-    formData.append('title', name); // typical api parameter
-    // Fallback names for file/audio depending on exact API, typically 'audio' or 'file' and 'text'
+    formData.append('title', name);
     formData.append('audio', audioFile); 
     formData.append('text', transcript);
 
-    const response = await fetch(`${API_BASE}/v1/voices`, { // standard /v1/voices or /model/create endpoint
+    const response = await fetch(`${API_BASE}/v1/voices`, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${settings.apiKey}`
-        },
+        headers: { 'Authorization': `Bearer ${settings.apiKey}` },
         body: formData
     });
 
@@ -185,61 +122,47 @@ async function createRemoteModel(name, audioFile, transcript) {
     }
 
     const data = await response.json();
-    return data.id || data.reference_id || data.voice_id; // Return the returned id
+    return data.id || data.reference_id || data.voice_id; 
 }
 
-/**
- * Refresh local UI Select list for voices
- */
 function populateLocalVoices() {
     const select = document.getElementById('fish_audio_current_voice');
     if (!select) return;
-
-    // Reset keeping first element
+    
+    const currentVal = settings.selectedVoiceId || select.value;
     select.innerHTML = '<option value="">-- Random / Base Voice --</option>';
-
+    
     settings.voices.forEach(v => {
         const option = document.createElement('option');
         option.value = v.id;
         option.textContent = `${v.name} (${v.type})`;
-        if (v.id === settings.selectedVoiceId) {
-            option.selected = true;
-        }
+        if (v.id === settings.selectedVoiceId) option.selected = true;
         select.appendChild(option);
     });
+    select.value = currentVal;
+    settings.selectedVoiceId = currentVal;
 }
 
-/**
- * Setup Settings UI Events
- */
-function setupUI() {
-    // Basic inputs
-    $('#fish_audio_api_key').val(settings.apiKey).on('input', function () {
-        settings.apiKey = $(this).val();
-    });
-    $('#fish_audio_model').val(settings.model).on('change', function () {
-        settings.model = $(this).val();
-    });
-    $('#fish_audio_format').val(settings.format).on('change', function () {
-        settings.format = $(this).val();
-    });
-    $('#fish_audio_latency').val(settings.latency).on('change', function () {
-        settings.latency = $(this).val();
-    });
-    $('#fish_audio_reference_id').val(settings.manualReferenceId).on('input', function () {
-        settings.manualReferenceId = $(this).val();
-    });
-
-    // Voices Select
-    $('#fish_audio_current_voice').on('change', function () {
-        settings.selectedVoiceId = $(this).val();
-    });
-
-    // Populate Select
+function restoreUIVariables() {
+    $('#fish_audio_api_key').val(settings.apiKey);
+    $('#fish_audio_model').val(settings.model);
+    $('#fish_audio_format').val(settings.format);
+    $('#fish_audio_latency').val(settings.latency);
+    $('#fish_audio_reference_id').val(settings.manualReferenceId);
     populateLocalVoices();
+}
 
-    // Voice Clone Logic
-    $('#fish_audio_save_voice_btn').on('click', async function () {
+function setupUIEventDelegations() {
+    // Basic inputs
+    $(document).on('input', '#fish_audio_api_key', function() { settings.apiKey = $(this).val(); getContext().saveSettings(); });
+    $(document).on('change', '#fish_audio_model', function() { settings.model = $(this).val(); getContext().saveSettings(); });
+    $(document).on('change', '#fish_audio_format', function() { settings.format = $(this).val(); getContext().saveSettings(); });
+    $(document).on('change', '#fish_audio_latency', function() { settings.latency = $(this).val(); getContext().saveSettings(); });
+    $(document).on('input', '#fish_audio_reference_id', function() { settings.manualReferenceId = $(this).val(); getContext().saveSettings(); });
+    $(document).on('change', '#fish_audio_current_voice', function() { settings.selectedVoiceId = $(this).val(); getContext().saveSettings(); });
+
+    // Save/Clone Voice
+    $(document).on('click', '#fish_audio_save_voice_btn', async function () {
         const name = $('#fish_audio_clone_name').val().trim();
         const transcript = $('#fish_audio_clone_transcript').val().trim();
         const mode = $('#fish_audio_clone_mode').val();
@@ -254,64 +177,41 @@ function setupUI() {
 
         try {
             if (mode === 'instant') {
-                if (!transcript) {
-                    throw new Error('Transcript is required for Instant Clone.');
-                }
+                if (!transcript) throw new Error('Transcript is required for Instant Clone.');
                 const base64Audio = await fileToBase64(file);
-                if (base64Audio.length > 5 * 1024 * 1024) { // Roughly 5MB limit for base64 saving in local storage logic
-                    showAlerter('Audio file is very large. Consider Remote Model creation or cut it to 5-10 seconds.', 'info');
-                }
-
                 settings.voices.push({
-                    id: generateId(),
-                    name: name,
-                    type: 'instant',
-                    reference_id: null,
-                    audio: base64Audio,
-                    text: transcript
+                    id: generateId(), name: name, type: 'instant', reference_id: null, audio: base64Audio, text: transcript
                 });
-                
-                showAlerter(`Voice "${name}" saved instantly to local storage!`, 'success');
-
+                showAlerter(`Voice "${name}" saved instantly!`, 'success');
             } else {
-                showAlerter('Uploading model to Fish Audio API...', 'info');
-                // Remote Create
+                showAlerter('Uploading model to Fish Audio...', 'info');
                 const refId = await createRemoteModel(name, file, transcript);
                 settings.voices.push({
-                    id: generateId(),
-                    name: name,
-                    type: 'remote',
-                    reference_id: refId,
-                    audio: null,
-                    text: null
+                    id: generateId(), name: name, type: 'remote', reference_id: refId, audio: null, text: null
                 });
                 showAlerter(`Model "${name}" created remotely!`, 'success');
             }
 
-            // Cleanup fields
             $('#fish_audio_clone_name').val('');
             $('#fish_audio_clone_transcript').val('');
             fileInput.value = '';
-
-            // Update UI
             populateLocalVoices();
-            console.log('[Fish Audio TTS] Voices:', settings.voices);
             getContext().saveSettings();
-
         } catch (err) {
-            console.error('[Fish Audio TTS] Voice Creation Error:', err);
-            showAlerter(err.message || 'Failed to add voice', 'error');
+            console.error(err);
+            showAlerter(err.message, 'error');
         } finally {
             $btn.prop('disabled', false).html('<i class="fa-solid fa-save"></i> Add Voice');
         }
     });
 
-    // Test Voice Logic
-    $('#fish_audio_test_btn').on('click', async function () {
+    // Test Voice
+    $(document).on('click', '#fish_audio_test_btn', async function () {
         const textToTest = $('#fish_audio_test_text').val().trim();
-        if (!textToTest) return showAlerter('Enter some text to test', 'info');
+        if (!textToTest) return;
 
-        $('#fish_audio_test_btn').hide();
+        const $btn = $(this);
+        $btn.hide();
         $('#fish_audio_loading').show();
         $('#fish_audio_test_playback').hide();
 
@@ -322,62 +222,74 @@ function setupUI() {
             $('#fish_audio_test_playback').show();
             player.play();
         } catch (err) {
-            console.error(err);
             showAlerter('Test Failed: ' + err.message, 'error');
         } finally {
-            $('#fish_audio_test_btn').show();
+            $btn.show();
             $('#fish_audio_loading').hide();
         }
     });
+
+    // Since ST TTS menus dynamically re-render, we watch for our settings block entering the DOM 
+    // and immediately re-populate it with the saved settings state.
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1 && (node.id === 'fish-audio-settings' || node.querySelector('#fish-audio-settings'))) {
+                        restoreUIVariables();
+                    }
+                });
+            }
+        });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 }
 
-/**
- * Register the provider with SillyTavern global instances natively if possible,
- * else push to the TTS providers array.
- */
-function registerProvider() {
+function registerProvider(html) {
     const providerDef = {
-        name: 'Fish Audio',
-        settingsHtml: '', // Normally we might inject settings via standard DOM insertion (below)
+        name: 'Fish Audio', // This is what shows up in the TTS Providers Dropdown
+        settingsHtml: html, // The HTML ST renders when the provider is selected
         onSettingsChange: () => {},
-        generate: async (text, voiceInfo) => {
-            // voiceInfo might contain selected voice from character card mapping in standard ST TTS
-            // In a simple generic setup, relying on our UI's voice is sufficient or matching VoiceInfo
-            // To make it fully native, you could map character name to settings.voices
-            return await generateAudio(text);
+        generate: async (text, voiceInfo) => { 
+            // voiceInfo sometimes passed by ST's automatic Voice Map
+            return await generateAudio(text); 
         }
     };
 
-    if (window.SillyTavern && window.SillyTavern.registerTTSProvider) {
+    let registered = false;
+
+    // Standard native method for SillyTavern TTS registration
+    if (typeof SillyTavern !== 'undefined' && SillyTavern.registerTTSProvider) {
+        SillyTavern.registerTTSProvider(extensionName, providerDef);
+        registered = true;
+    } else if (window.SillyTavern && window.SillyTavern.registerTTSProvider) {
         window.SillyTavern.registerTTSProvider(extensionName, providerDef);
+        registered = true;
+    } else if (typeof window.registerTTSProvider !== 'undefined') {
+        window.registerTTSProvider(extensionName, providerDef);
+        registered = true;
+    }
+
+    if (!registered) {
+        console.warn('[Fish Audio TTS] Could not find native registerTTSProvider functions. Falling back to manual HTML injection.');
+        if ($('#tts_settings').length) {
+            $('#tts_settings').append(html);
+        } else {
+            $('#extensions_settings').append(html);
+        }
+        restoreUIVariables();
     } else {
-        // Just log that we successfully loaded.
-        console.log('[Fish Audio TTS] Loaded custom TTS module. Used in native DOM');
+        console.log('[Fish Audio TTS] successfully registered via native SillyTavern.registerTTSProvider.');
     }
 }
 
 jQuery(async () => {
-    // 1. Fetch settings HTML
     const settingsHtmlPath = `${extensionFolderPath}/settings.html`;
     try {
         const html = await $.get(settingsHtmlPath);
-        
-        // Append settings UI to standard TTS extension settings area
-        if ($('#tts_settings').length) {
-            $('#tts_settings').append(html);
-        } else {
-            // Fallback for custom layouts
-            $('#extensions_settings').append(html); 
-        }
-
-        // Setup UI handlers
-        setupUI();
-
-        // Register natively
-        registerProvider();
-        
-        console.log(`[Fish Audio TTS] Loaded Extension ✓`);
+        setupUIEventDelegations();
+        registerProvider(html);
     } catch (e) {
-        console.error(`[Fish Audio TTS] Failed to load settings template:`, e);
+        console.error(`[Fish Audio TTS] Failed to load settings:`, e);
     }
 });
