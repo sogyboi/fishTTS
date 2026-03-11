@@ -1,0 +1,9 @@
+{
+    "name": "Fish Audio",
+    "description": "Text-to-Speech provider using Fish Audio API natively. Supports Model s1 and s2-pro, with instant cloning and remote persistent models.",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "main": "index.js",
+    "require": [],
+    "type": "tts"
+}

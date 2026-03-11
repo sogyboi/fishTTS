@@ -1,0 +1,96 @@
+<div class="fish-audio-settings" id="fish-audio-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Fish Audio TTS</b>
+            <div class="inline-drawer-icon fa-solid fa-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            
+            <div class="flex-container">
+                <label for="fish_audio_api_key">API Key</label>
+                <input type="password" id="fish_audio_api_key" class="text_pole" placeholder="Enter your Fish Audio API Key" />
+                <small>Get your key at <a href="https://fish.audio" target="_blank">fish.audio</a></small>
+            </div>
+
+            <div class="flex-container">
+                <label for="fish_audio_model">Model</label>
+                <select id="fish_audio_model" class="text_pole">
+                    <option value="s2-pro">S2 Pro (Recommended)</option>
+                    <option value="s1">S1</option>
+                </select>
+            </div>
+
+            <div class="flex-container">
+                <label for="fish_audio_format">Output Format</label>
+                <select id="fish_audio_format" class="text_pole">
+                    <option value="mp3">MP3</option>
+                    <option value="wav">WAV</option>
+                </select>
+            </div>
+            
+            <div class="flex-container">
+                <label for="fish_audio_latency">Latency Mode</label>
+                <select id="fish_audio_latency" class="text_pole">
+                    <option value="normal">Normal</option>
+                    <option value="low">Low Latency</option>
+                </select>
+            </div>
+
+            <hr>
+            <h4>Voice Management</h4>
+            <div class="flex-container">
+                <label for="fish_audio_current_voice">Selected Voice</label>
+                <select id="fish_audio_current_voice" class="text_pole">
+                    <option value="">-- Random/Base Voice --</option>
+                </select>
+            </div>
+            
+            <!-- Hidden field for direct reference ID input just in case -->
+            <div class="flex-container">
+                <label for="fish_audio_reference_id">Manual Reference ID (Overrides Selected Voice)</label>
+                <input type="text" id="fish_audio_reference_id" class="text_pole" placeholder="e.g. 1234abcd-..." />
+            </div>
+
+            <hr>
+            <h4>Add / Clone New Voice</h4>
+            <div class="flex-container">
+                <label for="fish_audio_clone_name">Voice Name</label>
+                <input type="text" id="fish_audio_clone_name" class="text_pole" placeholder="E.g., Eldritch Entity" />
+            </div>
+            <div class="flex-container">
+                <label for="fish_audio_clone_transcript">Transcript (for Instant Clone)</label>
+                <textarea id="fish_audio_clone_transcript" class="text_pole" rows="2" placeholder="Exact words spoken in the audio file..."></textarea>
+            </div>
+            <div class="flex-container">
+                <label for="fish_audio_clone_file">Voice Sample (.wav/.mp3)</label>
+                <input type="file" id="fish_audio_clone_file" class="text_pole" accept="audio/wav, audio/mp3, audio/flac" />
+                <small>Required for both Instant Clone and Persistent Model.</small>
+            </div>
+            <div class="flex-container">
+                 <label>Voice Type</label>
+                 <select id="fish_audio_clone_mode" class="text_pole">
+                     <option value="instant">Instant Clone (Saved in Local Storage)</option>
+                     <option value="remote">Create Persistent Model (API)</option>
+                 </select>
+            </div>
+            
+            <div class="flex-container">
+                <button id="fish_audio_save_voice_btn" class="menu_button fa-solid fa-save"> Add Voice</button>
+            </div>
+
+            <hr>
+            <h4>Testing</h4>
+            <div class="flex-container">
+                <label for="fish_audio_test_text">Test Text</label>
+                <textarea id="fish_audio_test_text" class="text_pole" rows="2">Hello user, from Fish Audio. I am working perfectly.</textarea>
+            </div>
+            <div class="flex-container" style="flex-direction: row; gap: 10px; align-items: center;">
+                <button id="fish_audio_test_btn" class="menu_button fa-solid fa-play"> Test Voice</button>
+                <span id="fish_audio_loading" style="display: none; color: #ffeb3b;"><i class="fa-solid fa-spinner fa-spin"></i> Generating...</span>
+            </div>
+            <div id="fish_audio_test_playback" style="margin-top: 10px; display: none;">
+                <audio id="fish_audio_player" controls style="width: 100%;"></audio>
+            </div>
+        </div>
+    </div>
+</div>
