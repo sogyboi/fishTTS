@@ -1,9 +1,12 @@
 {
-    "name": "Fish Audio",
-    "description": "Text-to-Speech provider using Fish Audio API natively. Supports Model s1 and s2-pro, with instant cloning and remote persistent models.",
+    "display_name": "Fish Audio TTS",
+    "loading_order": 10,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "sogyboi",
     "version": "1.0.0",
-    "author": "Antigravity",
-    "main": "index.js",
-    "require": [],
-    "type": "tts"
+    "homePage": "https://github.com/sogyboi/fishTTS",
+    "auto_update": true
 }
